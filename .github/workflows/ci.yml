@@ -12,7 +12,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Nightly first (for rustfmt with rustfmt.toml's unstable options),
       # stable second so it stays the default toolchain.
       - uses: dtolnay/rust-toolchain@nightly
