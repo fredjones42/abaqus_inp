@@ -629,7 +629,10 @@ fn parse_id(f: &str, n: usize) -> Result<Id, Error> {
 }
 
 fn parse_f64(f: &str, n: usize) -> Result<f64, Error> {
-    f.parse().map_err(|_| err(n, format!("bad number `{f}`")))
+    // Fallback: Fortran-style exponents (1.0D+00) from legacy decks.
+    f.parse()
+        .or_else(|_| f.replace(['D', 'd'], "e").parse())
+        .map_err(|_| err(n, format!("bad number `{f}`")))
 }
 
 #[cfg(test)]
@@ -724,6 +727,12 @@ mod tests {
         assert_eq!(mesh.materials[0].density, None);
         assert_eq!(mesh.materials[1].density, Some(1.0));
         assert!(parse_str("*Density\n1.0,\n").is_err());
+    }
+
+    #[test]
+    fn fortran_exponents() {
+        let mesh = parse_str("*NODE\n1, 1.5D+01, 2d0, -1.D-1\n").unwrap();
+        assert_eq!(mesh.parts[0].node_coords[0], [15.0, 2.0, -0.1]);
     }
 
     #[test]

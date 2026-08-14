@@ -27,7 +27,8 @@ summary.
 Test files in `tests/data/` come from [meshio](https://github.com/nschloe/meshio)
 (MIT license) and the MCNP 6.3.1 manual §8.7.2.10
 (`example_unstructured_mesh.abaq.inp.txt`, stored here as
-`mcnp_example_um.inp`), stored as plain files (no git LFS).
+`mcnp_example_um.inp`; the manual is a US government work, LA-UR-24-24602),
+stored as plain files (no git LFS).
 
 ## Develop
 
