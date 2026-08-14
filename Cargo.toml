@@ -1,0 +1,16 @@
+[package]
+name = "abaqus_inp"
+version = "0.1.0"
+edition = "2024"
+authors = ["Fred Jones <fredjones42@proton.me>"]
+description = "Abaqus mesh input file parser"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+
+[dev-dependencies]
+criterion = "0.8"
+
+[[bench]]
+name = "bench"
+harness = false
