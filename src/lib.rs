@@ -127,6 +127,35 @@ pub struct Rotation {
     pub angle_deg: f64,
 }
 
+impl Rotation {
+    /// Rotate a point about the axis through `axis_a` and `axis_b` by
+    /// `angle_deg` (Rodrigues' rotation formula).
+    pub fn apply(&self, p: [f64; 3]) -> [f64; 3] {
+        let a = self.axis_a;
+        let mut k = [0.0; 3];
+        for i in 0..3 {
+            k[i] = self.axis_b[i] - a[i];
+        }
+        let len = (k[0] * k[0] + k[1] * k[1] + k[2] * k[2]).sqrt();
+        for x in &mut k {
+            *x /= len; // parsing rejects a degenerate axis, so len > 0
+        }
+        let v = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+        let (s, c) = self.angle_deg.to_radians().sin_cos();
+        let cross = [
+            k[1] * v[2] - k[2] * v[1],
+            k[2] * v[0] - k[0] * v[2],
+            k[0] * v[1] - k[1] * v[0],
+        ];
+        let dot = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+        let mut out = [0.0; 3];
+        for i in 0..3 {
+            out[i] = a[i] + v[i] * c + cross[i] * s + k[i] * dot * (1.0 - c);
+        }
+        out
+    }
+}
+
 /// An `*INSTANCE` of a part within the assembly. The translation is applied
 /// before the rotation (MCNP 6.3.1 §8.7.2.7).
 #[derive(Debug, PartialEq)]
@@ -139,6 +168,22 @@ pub struct Instance {
     pub translation: [f64; 3],
     /// Optional rotation, applied after the translation.
     pub rotation: Option<Rotation>,
+}
+
+impl Instance {
+    /// Map a part-local point into assembly coordinates: translation, then
+    /// rotation (MCNP 6.3.1 §8.7.2.7).
+    pub fn transform(&self, p: [f64; 3]) -> [f64; 3] {
+        let t = [
+            p[0] + self.translation[0],
+            p[1] + self.translation[1],
+            p[2] + self.translation[2],
+        ];
+        match &self.rotation {
+            Some(r) => r.apply(t),
+            None => t,
+        }
+    }
 }
 
 /// A `*MATERIAL` definition.
@@ -367,6 +412,9 @@ fn parse_into(
                         got_translation: true,
                     };
                 } else if count == 7 && i.rotation.is_none() {
+                    if vals[..3] == vals[3..6] {
+                        return Err(err(n, "rotation axis points coincide"));
+                    }
                     i.rotation = Some(Rotation {
                         axis_a: [vals[0], vals[1], vals[2]],
                         axis_b: [vals[3], vals[4], vals[5]],
@@ -639,6 +687,30 @@ mod tests {
         let rot = mesh.instances[2].rotation.unwrap();
         assert_eq!((rot.axis_b, rot.angle_deg), ([0.0, 0.0, 1.0], 90.0));
         assert!(mesh.instances[1].rotation.is_none());
+    }
+
+    #[test]
+    fn transform_translates_then_rotates() {
+        // Translate by +1 in x, then rotate 90° about the z-axis through the
+        // origin: (0,0,0) -> (1,0,0) -> (0,1,0).
+        let inst = super::Instance {
+            name: String::new(),
+            part: String::new(),
+            translation: [1.0, 0.0, 0.0],
+            rotation: Some(super::Rotation {
+                axis_a: [0.0; 3],
+                axis_b: [0.0, 0.0, 1.0],
+                angle_deg: 90.0,
+            }),
+        };
+        let p = inst.transform([0.0; 3]);
+        assert!((p[0]).abs() < 1e-12 && (p[1] - 1.0).abs() < 1e-12 && p[2].abs() < 1e-12);
+
+        // A degenerate rotation axis is rejected at parse time.
+        let bad = "*Part, name=P\n*End Part\n*Assembly, name=A\n\
+                   *Instance, name=I, part=P\n0., 0., 0.\n1., 1., 1., 1., 1., 1., 90.\n\
+                   *End Instance\n*End Assembly\n";
+        assert!(parse_str(bad).is_err());
     }
 
     #[test]
