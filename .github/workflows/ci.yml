@@ -9,20 +9,45 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # Nightly first (for rustfmt with rustfmt.toml's unstable options),
-      # stable second so it stays the default toolchain.
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo nextest run --all-features
+      - run: cargo test --doc --all-features
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # rustfmt.toml uses group_imports and imports_granularity, which stable
+      # rustfmt silently ignores, so formatting has to be checked on nightly
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      # Two toolchains are installed and the later one is rustup's default, so
+      # every command names the toolchain it needs rather than relying on that
       - run: cargo +nightly fmt --check
-      - run: cargo test
-      - run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+      - run: cargo +stable clippy --all-targets --all-features -- -D warnings
+      - run: cargo +stable doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Keep in step with rust-version in Cargo.toml
+      - uses: dtolnay/rust-toolchain@1.86.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets --all-features

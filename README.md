@@ -35,11 +35,21 @@ stored as plain files (no git LFS).
 ```sh
 cargo clippy --all-targets --all-features -- -D warnings
 cargo +nightly fmt
-cargo test
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+cargo nextest run
+cargo test --doc
+cargo llvm-cov nextest --lcov --output-path target/lcov.info
+cargo crap --lcov target/lcov.info
 cargo bench
 ```
 
 `rustfmt.toml` uses unstable options, so formatting needs nightly.
+
+The doc line uses POSIX environment-prefix syntax. In PowerShell:
+
+```powershell
+$env:RUSTDOCFLAGS="-D warnings"; cargo doc --no-deps
+```
 
 ## License
 
