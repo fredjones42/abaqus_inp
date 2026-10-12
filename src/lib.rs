@@ -61,7 +61,9 @@ pub struct ElementBlock {
     pub ids: Vec<Id>,
     /// Flat connectivity: `nodes_per_element` node labels per element.
     pub connectivity: Vec<Id>,
-    /// Nodes per element, inferred from the block's first element.
+    /// Nodes per element: from the type for the solids MCNP accepts (`C3D4`,
+    /// `C3D6`, `C3D8`, `C3D10`, `C3D15`, `C3D20`, `SC8`, plus suffixed forms like
+    /// `C3D8R`), otherwise inferred from the block's first element.
     pub nodes_per_element: usize,
 }
 
@@ -288,7 +290,7 @@ fn parse_into(
             continue;
         }
         if let Some(kw_line) = line.strip_prefix('*') {
-            let full = logical(kw_line, &mut lines);
+            let full = logical(kw_line, &mut lines, |_| true);
             let (kw, params) = full.split_once(',').unwrap_or((&full, ""));
             target = keyword(mesh, dir, &mut cur, kw.trim(), params, n)?;
             continue;
@@ -296,7 +298,18 @@ fn parse_into(
         if matches!(target, Target::Skip) {
             continue;
         }
-        let full = logical(line, &mut lines);
+        // Abaqus continues data lines only within an element definition, and
+        // only while the element is incomplete. Elsewhere a trailing comma is
+        // just the required terminator of a single-item line.
+        let full = match target {
+            Target::Element { part, block, .. } => {
+                let want = mesh.parts[part].element_blocks[block].nodes_per_element;
+                logical(line, &mut lines, |s| {
+                    want == 0 || s.split(',').filter(|f| !f.trim().is_empty()).count() <= want
+                })
+            }
+            _ => Cow::Borrowed(line),
+        };
         match target {
             Target::Skip => unreachable!(),
             Target::Node { part, nset } => {
@@ -466,7 +479,7 @@ fn keyword(
             element_type: ty.to_owned(),
             ids: Vec::new(),
             connectivity: Vec::new(),
-            nodes_per_element: 0,
+            nodes_per_element: nodes_for_type(ty),
         });
         Ok(Target::Element {
             part,
@@ -554,10 +567,14 @@ fn keyword(
 }
 
 /// Join continuation lines: a line ending in `,` continues on the next data
-/// line. A keyword line always terminates the join (real files leave trailing
-/// commas on final data lines).
-fn logical<'a>(first: &'a str, lines: &mut LineIter<'a>) -> Cow<'a, str> {
-    if !first.ends_with(',') {
+/// line while `more` holds for the text so far. A keyword line always
+/// terminates the join (real files leave trailing commas on final data lines).
+fn logical<'a>(
+    first: &'a str,
+    lines: &mut LineIter<'a>,
+    more: impl Fn(&str) -> bool,
+) -> Cow<'a, str> {
+    if !first.ends_with(',') || !more(first) {
         return Cow::Borrowed(first);
     }
     let mut s = first.to_owned();
@@ -572,11 +589,32 @@ fn logical<'a>(first: &'a str, lines: &mut LineIter<'a>) -> Cow<'a, str> {
         }
         lines.next();
         s.push_str(t);
-        if !s.ends_with(',') {
+        if !s.ends_with(',') || !more(&s) {
             break;
         }
     }
     Cow::Owned(s)
+}
+
+/// Node count of the element types MCNP accepts (MCNP 6.3.1 Table 8.1), with
+/// Abaqus suffixes such as `R`, `H`, `I`, or `M`; 0 (infer) for anything else,
+/// including the variable-node `C3D15V` and `C3D27`.
+fn nodes_for_type(ty: &str) -> usize {
+    let ty = ty.to_ascii_uppercase();
+    let (rest, allowed): (&str, &[usize]) = if let Some(r) = ty.strip_prefix("C3D") {
+        (r, &[4, 6, 8, 10, 15, 20])
+    } else if let Some(r) = ty.strip_prefix("SC") {
+        (r, &[8])
+    } else {
+        return 0;
+    };
+    let digits = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    match rest[..digits].parse() {
+        Ok(n) if allowed.contains(&n) && !rest[digits..].contains('V') => n,
+        _ => 0,
+    }
 }
 
 /// Look up a keyword parameter, case-insensitively. Bare flags yield `""`.
@@ -646,7 +684,7 @@ mod tests {
     #[test]
     fn continuation_and_generate() {
         let mesh = parse_str(
-            "*NODE\n1, 0., 0.\n2, 1.,\n1.\n*ELEMENT, TYPE=B21\n1, 1,\n2\n\
+            "*NODE\n1, 0., 0.\n2, 1., 1.\n*ELEMENT, TYPE=B21\n1, 1,\n2\n\
              *NSET, NSET=n, GENERATE\n1, 2\n*ELSET, elset=e\n1,\n",
         )
         .unwrap();
@@ -802,6 +840,66 @@ mod tests {
         assert_eq!(p.element_blocks[0].ids, []);
         assert_eq!(p.node_set("g").unwrap().ids, []);
         assert_eq!(mesh.materials[0].density, None);
+    }
+
+    #[test]
+    fn trailing_comma_outside_elements_does_not_continue() {
+        // A single-item data line must end with a comma (MCNP 6.3.1 §8.7.2).
+        let mesh = parse_str("*NODE\n5,\n6, 1., 2., 3.\n1, 0., 0., 0.,\n2, 1., 0., 0.\n").unwrap();
+        let p = &mesh.parts[0];
+        assert_eq!(p.node_ids, [5, 6, 1, 2]);
+        assert_eq!(p.node_coords[0], [0.0; 3]);
+        assert_eq!(p.node_coords[1], [1.0, 2.0, 3.0]);
+        let mesh =
+            parse_str("*Instance, name=i, part=p\n1., 2., 3.,\n0, 0, 0, 0, 0, 1, 90.,\n").unwrap();
+        assert_eq!(mesh.instances[0].translation, [1.0, 2.0, 3.0]);
+        assert_eq!(mesh.instances[0].rotation.as_ref().unwrap().angle_deg, 90.0);
+    }
+
+    #[test]
+    fn element_continues_only_while_incomplete() {
+        let mesh = parse_str("*ELEMENT, TYPE=C3D4\n1, 1, 2, 3, 4,\n2, 2, 3, 4, 5\n").unwrap();
+        let b = &mesh.parts[0].element_blocks[0];
+        assert_eq!(b.ids, [1, 2]);
+        assert_eq!(b.nodes_per_element, 4);
+
+        let first = (1..=15)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mesh = parse_str(&format!(
+            "*ELEMENT, TYPE=C3D20R\n7, {first},\n 16, 17, 18, 19, 20\n"
+        ))
+        .unwrap();
+        let b = &mesh.parts[0].element_blocks[0];
+        assert_eq!(b.elements().next().unwrap().1, (1..=20).collect::<Vec<_>>());
+
+        let e = parse_str(&format!(
+            "*ELEMENT, TYPE=C3D20\n7, {first}\n 16, 17, 18, 19, 20\n"
+        ))
+        .unwrap_err();
+        assert_eq!(
+            (e.line, e.msg.as_str()),
+            (2, "element 7 has 15 nodes, block expects 20")
+        );
+    }
+
+    #[test]
+    fn node_count_from_type() {
+        for (ty, n) in [
+            ("C3D4", 4),
+            ("c3d8r", 8),
+            ("C3D10M", 10),
+            ("C3D15", 15),
+            ("C3D20RH", 20),
+            ("SC8R", 8),
+            ("C3D15V", 0),
+            ("C3D27", 0),
+            ("S3", 0),
+            ("B31", 0),
+        ] {
+            assert_eq!(super::nodes_for_type(ty), n, "{ty}");
+        }
     }
 
     #[test]
