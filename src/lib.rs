@@ -745,6 +745,66 @@ mod tests {
     }
 
     #[test]
+    fn data_line_errors() {
+        let inst = "*Instance, name=i, part=p\n";
+        for (text, line, msg) in [
+            (
+                "*NODE\n1, 0.\n2, 0.\n*ELEMENT, TYPE=T2D2\n1, 1, 2\n2, 1\n",
+                6,
+                "element 2 has 1 nodes, block expects 2",
+            ),
+            (
+                "*NSET, NSET=s, GENERATE\n1\n",
+                2,
+                "GENERATE needs `first, last[, step]`",
+            ),
+            (
+                "*NSET, NSET=s, GENERATE\n1, 5, 0\n",
+                2,
+                "GENERATE step must be nonzero",
+            ),
+            (
+                "*NSET, NSET=s\nnope\n",
+                2,
+                "unknown set or bad label `nope`",
+            ),
+            (
+                &format!("{inst}1, 2, 3, 4, 5, 6, 7, 8\n"),
+                2,
+                "too many instance transform values",
+            ),
+            (
+                &format!("{inst}1, 2\n"),
+                2,
+                "instance translation needs 3 values",
+            ),
+            (
+                &format!("{inst}0, 0, 0\n1, 2, 3\n"),
+                3,
+                "instance rotation needs 7 values",
+            ),
+        ] {
+            let e = parse_str(text).unwrap_err();
+            assert_eq!((e.line, e.msg.as_str()), (line, msg), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn blank_fields_are_skipped() {
+        let mesh = parse_str(
+            "*NODE\n, 5.\n1, 1., , 2.\n*ELEMENT, TYPE=T2D2\n,\n\
+             *NSET, NSET=g, GENERATE\n,\n*Material, name=m\n*Density\n,\n",
+        )
+        .unwrap();
+        let p = &mesh.parts[0];
+        assert_eq!(p.node_ids, [1]);
+        assert_eq!(p.node_coords[0], [1.0, 0.0, 2.0]);
+        assert_eq!(p.element_blocks[0].ids, []);
+        assert_eq!(p.node_set("g").unwrap().ids, []);
+        assert_eq!(mesh.materials[0].density, None);
+    }
+
+    #[test]
     fn include_needs_a_directory() {
         assert!(parse_str("*INCLUDE, INPUT=other.inp\n").is_err());
     }
