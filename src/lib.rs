@@ -1,5 +1,3 @@
-#![warn(clippy::all)]
-
 //! Abaqus mesh input file (`.inp`) parser.
 //!
 //! Reads the mesh-defining keywords — `*NODE`, `*ELEMENT`, `*NSET`, `*ELSET`,
@@ -97,6 +95,7 @@ pub struct Part {
 
 impl Part {
     /// Look up a node set by name (Abaqus names are case-insensitive).
+    #[must_use]
     pub fn node_set(&self, name: &str) -> Option<&Set> {
         self.node_sets
             .iter()
@@ -104,6 +103,7 @@ impl Part {
     }
 
     /// Look up an element set by name (case-insensitive).
+    #[must_use]
     pub fn element_set(&self, name: &str) -> Option<&Set> {
         self.element_sets
             .iter()
@@ -111,6 +111,7 @@ impl Part {
     }
 
     /// Total element count across all blocks.
+    #[must_use]
     pub fn element_count(&self) -> usize {
         self.element_blocks.iter().map(|b| b.ids.len()).sum()
     }
@@ -130,6 +131,8 @@ pub struct Rotation {
 impl Rotation {
     /// Rotate a point about the axis through `axis_a` and `axis_b` by
     /// `angle_deg` (Rodrigues' rotation formula).
+    #[must_use]
+    #[allow(clippy::many_single_char_names)] // names follow Rodrigues' formula
     pub fn apply(&self, p: [f64; 3]) -> [f64; 3] {
         let a = self.axis_a;
         let mut k = [0.0; 3];
@@ -173,6 +176,7 @@ pub struct Instance {
 impl Instance {
     /// Map a part-local point into assembly coordinates: translation, then
     /// rotation (MCNP 6.3.1 §8.7.2.7).
+    #[must_use]
     pub fn transform(&self, p: [f64; 3]) -> [f64; 3] {
         let t = [
             p[0] + self.translation[0],
@@ -208,6 +212,7 @@ pub struct Mesh {
 
 impl Mesh {
     /// Look up a part by name (case-insensitive).
+    #[must_use]
     pub fn part(&self, name: &str) -> Option<&Part> {
         self.parts
             .iter()
@@ -600,13 +605,12 @@ fn part_index(mesh: &mut Mesh, name: &str) -> usize {
 
 /// The part receiving mesh data now; outside any part, the implicit `""` part.
 fn cur_part(mesh: &mut Mesh, cur: &mut Option<usize>) -> usize {
-    match *cur {
-        Some(i) => i,
-        None => {
-            let i = part_index(mesh, "");
-            *cur = Some(i);
-            i
-        }
+    if let Some(i) = *cur {
+        i
+    } else {
+        let i = part_index(mesh, "");
+        *cur = Some(i);
+        i
     }
 }
 

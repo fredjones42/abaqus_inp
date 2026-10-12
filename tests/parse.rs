@@ -84,7 +84,7 @@ fn mcnp_example() {
     assert_eq!(mesh.parts.len(), 1);
     let p = mesh.part("MyCube").unwrap();
     assert_eq!(p.node_ids.len(), 120);
-    assert_eq!(p.node_coords[0], [-3.33333333, -5.0, 8.0]);
+    assert_eq!(p.node_coords[0], [-3.333_333_33, -5.0, 8.0]);
     let b = &p.element_blocks[0];
     assert_eq!(
         (b.element_type.as_str(), b.ids.len(), b.nodes_per_element),

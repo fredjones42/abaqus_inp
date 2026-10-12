@@ -2,6 +2,8 @@
 name = "abaqus_inp"
 version = "0.1.0"
 edition = "2024"
+# Floor set by criterion 0.8; edition 2024 alone needs 1.85.
+rust-version = "1.86"
 authors = ["Fred Jones <fredjones42@proton.me>"]
 description = "Abaqus mesh input file (.inp) parser"
 license = "MIT OR Apache-2.0"
@@ -9,6 +11,14 @@ repository = "https://github.com/fredjones42/abaqus_inp"
 readme = "README.md"
 keywords = ["abaqus", "mesh", "fem", "parser", "mcnp"]
 categories = ["parser-implementations", "science", "simulation"]
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+too_many_lines = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+struct_excessive_bools = "allow"
 
 [dependencies]
 

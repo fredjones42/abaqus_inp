@@ -45,14 +45,14 @@ fn synthetic(k: u32) -> String {
 fn bench_parse(c: &mut Criterion) {
     let uuea = include_str!("../tests/data/UUea.inp");
     c.bench_function("UUea", |b| {
-        b.iter(|| abaqus_inp::parse_str(black_box(uuea)).unwrap())
+        b.iter(|| abaqus_inp::parse_str(black_box(uuea)).unwrap());
     });
 
     let big = synthetic(40); // 64k nodes, 59k hexes, ~4 MB
     let mut g = c.benchmark_group("synthetic");
     g.throughput(Throughput::Bytes(big.len() as u64));
     g.bench_function("hex_40", |b| {
-        b.iter(|| abaqus_inp::parse_str(black_box(&big)).unwrap())
+        b.iter(|| abaqus_inp::parse_str(black_box(&big)).unwrap());
     });
     g.finish();
 }

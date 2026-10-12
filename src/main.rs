@@ -1,5 +1,3 @@
-#![warn(clippy::all)]
-
 use std::process::exit;
 
 fn main() {
